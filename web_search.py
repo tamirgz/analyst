@@ -104,7 +104,8 @@ class BlogPostGenerator(Workflow):
         # Writer agent configuration
         writer_instructions = [
             "You are a professional research analyst tasked with creating a comprehensive report on the given topic.",
-            "Carefully analyze each provided article and synthesize the information into a detailed report.",
+            "The sources provided include both general web search results and specialized intelligence/security websites.",
+            "Carefully analyze and cross-reference information from all sources to create a detailed report.",
             "",
             "Report Structure:",
             "1. Executive Summary (2-3 paragraphs)",
@@ -116,37 +117,40 @@ class BlogPostGenerator(Workflow):
             "   - Break down the topic into relevant themes or aspects",
             "   - For each theme:",
             "     * Present detailed findings from multiple sources",
+            "     * Cross-reference information between general and specialized sources",
             "     * Analyze trends, patterns, and developments",
             "     * Discuss implications and potential impacts",
             "",
-            "3. Source Analysis",
-            "   For each major article:",
-            "   - Title and source credibility assessment",
-            "   - Key findings and contributions to the topic",
-            "   - Critical evaluation of the information",
+            "3. Source Analysis and Credibility",
+            "   For each major source:",
+            "   - Evaluate source credibility and expertise",
+            "   - Note if from specialized intelligence/security website",
+            "   - Assess potential biases or limitations",
+            "   - Key findings and unique contributions",
             "",
-            "4. Key Takeaways and Implications (2-3 paragraphs)",
-            "   - Synthesize the most important findings",
-            "   - Discuss broader implications",
+            "4. Key Takeaways and Strategic Implications",
+            "   - Synthesize findings from all sources",
+            "   - Compare/contrast general media vs specialized analysis",
+            "   - Discuss broader geopolitical implications",
             "   - Address potential future developments",
             "",
             "5. References",
+            "   - Group sources by type (specialized websites vs general media)",
             "   - List all sources with full citations",
-            "   - Include URLs for all referenced articles",
-            "   - Format URLs as clickable markdown links [Title](URL)",
+            "   - Include URLs as clickable markdown links [Title](URL)",
             "   - Ensure every major claim has at least one linked source",
-            "   - Include any additional relevant URLs discovered",
             "",
             "Important Guidelines:",
-            "- Always maintain a professional, analytical tone",
-            "- Support all claims with evidence from the sources",
-            "- Critically evaluate the reliability of sources",
-            "- Provide specific examples and data points",
-            "- Include direct quotes when particularly relevant",
-            "- Address potential biases or limitations in the research",
+            "- Prioritize information from specialized intelligence/security sources",
+            "- Cross-validate claims between multiple sources when possible",
+            "- Maintain a professional, analytical tone",
+            "- Support all claims with evidence",
+            "- Include specific examples and data points",
+            "- Use direct quotes for significant statements",
+            "- Address potential biases in reporting",
             "- Ensure the report directly answers the research question",
             "",
-            "Format the report with clear headings, subheadings, and paragraphs for readability.",
+            "Format the report with clear markdown headings (# ## ###), subheadings, and paragraphs.",
             "Each major section should contain multiple paragraphs with detailed analysis."
         ]
         
@@ -506,32 +510,48 @@ class BlogPostGenerator(Workflow):
         keywords = topic.lower().split()
         keywords = [w for w in keywords if len(w) > 3 and w not in {'what', 'where', 'when', 'how', 'why', 'is', 'are', 'was', 'were', 'will', 'would', 'could', 'should', 'the', 'and', 'but', 'or', 'for', 'with'}]
         
-        # First, crawl initial websites
+        all_articles = []
+        existing_urls = set()
+        
+        # First, try web search
+        logger.info("Starting web search...")
+        search_results = self._search_with_retry(topic)
+        if search_results and search_results.articles:
+            for article in search_results.articles:
+                if article.url not in existing_urls:
+                    all_articles.append(article)
+                    existing_urls.add(article.url)
+            logger.info(f"Found {len(search_results.articles)} articles from web search")
+        
+        # Then, crawl initial websites
+        logger.info("Starting website crawl...")
         crawler = WebsiteCrawler(max_pages_per_site=10)
         crawled_results = crawler.crawl_all_websites(self.initial_websites, keywords)
         
         if crawled_results:
-            logger.info(f"Found {len(crawled_results)} relevant pages from initial websites")
-            search_results = SearchResults(articles=[NewsArticle(**result) for result in crawled_results])
-        else:
-            logger.info("No results from initial websites, falling back to search")
-            search_results = self._search_with_retry(topic)
+            for result in crawled_results:
+                if result['url'] not in existing_urls:
+                    article = NewsArticle(**result)
+                    all_articles.append(article)
+                    existing_urls.add(result['url'])
+            logger.info(f"Found {len(crawled_results)} articles from website crawl")
         
-        # If initial crawl yields insufficient results, supplement with search
-        if not search_results or len(search_results.articles) < 10:
-            logger.info("Supplementing results with additional search")
-            additional_results = self._search_with_retry(topic)
-            if additional_results:
-                existing_urls = {article.url for article in search_results.articles} if search_results else set()
-                for article in additional_results.articles:
+        # If we still need more results, try backup search
+        if len(all_articles) < 10:
+            logger.info("Supplementing with backup search...")
+            backup_results = self._search_with_retry(topic, use_backup=True)
+            if backup_results and backup_results.articles:
+                for article in backup_results.articles:
                     if article.url not in existing_urls:
-                        if not search_results:
-                            search_results = SearchResults(articles=[])
-                        search_results.articles.append(article)
+                        all_articles.append(article)
                         existing_urls.add(article.url)
+                logger.info(f"Found {len(backup_results.articles)} articles from backup search")
         
-        if not search_results or len(search_results.articles) < 10:
-            error_msg = f"Failed to gather sufficient sources. Only found {len(search_results.articles) if search_results else 0} valid sources."
+        # Create final search results
+        search_results = SearchResults(articles=all_articles)
+        
+        if len(search_results.articles) < 5:  # Reduced minimum requirement
+            error_msg = f"Failed to gather sufficient sources. Only found {len(search_results.articles)} valid sources."
             logger.error(error_msg)
             yield RunResponse(
                 event=RunEvent.run_completed,
@@ -775,7 +795,8 @@ writer = Agent(
     ),
     instructions=[
         "You are a professional research analyst tasked with creating a comprehensive report on the given topic.",
-        "Carefully analyze each provided article and synthesize the information into a detailed report.",
+        "The sources provided include both general web search results and specialized intelligence/security websites.",
+        "Carefully analyze and cross-reference information from all sources to create a detailed report.",
         "",
         "Report Structure:",
         "1. Executive Summary (2-3 paragraphs)",
@@ -787,37 +808,40 @@ writer = Agent(
         "   - Break down the topic into relevant themes or aspects",
         "   - For each theme:",
         "     * Present detailed findings from multiple sources",
+        "     * Cross-reference information between general and specialized sources",
         "     * Analyze trends, patterns, and developments",
         "     * Discuss implications and potential impacts",
         "",
-        "3. Source Analysis",
-        "   For each major article:",
-        "   - Title and source credibility assessment",
-        "   - Key findings and contributions to the topic",
-        "   - Critical evaluation of the information",
+        "3. Source Analysis and Credibility",
+        "   For each major source:",
+        "   - Evaluate source credibility and expertise",
+        "   - Note if from specialized intelligence/security website",
+        "   - Assess potential biases or limitations",
+        "   - Key findings and unique contributions",
         "",
-        "4. Key Takeaways and Implications (2-3 paragraphs)",
-        "   - Synthesize the most important findings",
-        "   - Discuss broader implications",
+        "4. Key Takeaways and Strategic Implications",
+        "   - Synthesize findings from all sources",
+        "   - Compare/contrast general media vs specialized analysis",
+        "   - Discuss broader geopolitical implications",
         "   - Address potential future developments",
         "",
         "5. References",
+        "   - Group sources by type (specialized websites vs general media)",
         "   - List all sources with full citations",
-        "   - Include URLs for all referenced articles",
-        "   - Format URLs as clickable markdown links [Title](URL)",
+        "   - Include URLs as clickable markdown links [Title](URL)",
         "   - Ensure every major claim has at least one linked source",
-        "   - Include any additional relevant URLs discovered",
         "",
         "Important Guidelines:",
-        "- Always maintain a professional, analytical tone",
-        "- Support all claims with evidence from the sources",
-        "- Critically evaluate the reliability of sources",
-        "- Provide specific examples and data points",
-        "- Include direct quotes when particularly relevant",
-        "- Address potential biases or limitations in the research",
+        "- Prioritize information from specialized intelligence/security sources",
+        "- Cross-validate claims between multiple sources when possible",
+        "- Maintain a professional, analytical tone",
+        "- Support all claims with evidence",
+        "- Include specific examples and data points",
+        "- Use direct quotes for significant statements",
+        "- Address potential biases in reporting",
         "- Ensure the report directly answers the research question",
         "",
-        "Format the report with clear headings, subheadings, and paragraphs for readability.",
+        "Format the report with clear markdown headings (# ## ###), subheadings, and paragraphs.",
         "Each major section should contain multiple paragraphs with detailed analysis."
     ],
     structured_outputs=True
