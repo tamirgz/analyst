@@ -3,7 +3,7 @@ import re
 import time
 import os
 import concurrent.futures
-from typing import Optional, Iterator, List, Set, Dict
+from typing import Optional, Iterator, List, Set, Dict, Any
 from urllib.parse import urlparse, urljoin
 import requests
 from bs4 import BeautifulSoup
@@ -54,6 +54,7 @@ class BlogPostGenerator(Workflow):
         "https://www.globalsecurity.org/",
         "https://www.defenseone.com/"
     ])
+    file_handler: Optional[Any] = Field(None)
 
     def __init__(
         self,
@@ -61,6 +62,7 @@ class BlogPostGenerator(Workflow):
         searcher: Agent,
         backup_searcher: Agent,
         writer: Agent,
+        file_handler: Optional[Any] = None,
         storage: Optional[SqlWorkflowStorage] = None,
     ):
         super().__init__(
@@ -70,6 +72,7 @@ class BlogPostGenerator(Workflow):
             writer=writer,
             storage=storage,
         )
+        self.file_handler = file_handler
         
         # Configure search instructions
         search_instructions = [
@@ -86,8 +89,8 @@ class BlogPostGenerator(Workflow):
             model=Nvidia(
                 id="meta/llama-3.2-3b-instruct",
                 api_key="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",
-                temperature=0.5,
-                top_p=0.1
+                temperature=0.4,
+                top_p=0.3
             ),
             tools=[DuckDuckGo(fixed_max_results=DUCK_DUCK_GO_FIXED_MAX_RESULTS)],
             instructions=search_instructions,
@@ -99,8 +102,8 @@ class BlogPostGenerator(Workflow):
             model=Nvidia(
                 id="meta/llama-3.2-3b-instruct",
                 api_key="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",
-                temperature=0.5,
-                top_p=0.1
+                temperature=0.4,
+                top_p=0.3
             ),
             tools=[GoogleSearch()],
             instructions=search_instructions,
@@ -165,7 +168,7 @@ class BlogPostGenerator(Workflow):
                 id="meta/llama-3.2-3b-instruct",
                 api_key="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",
                 temperature=0.2,
-                top_p=0.1
+                top_p=0.2
             ),
             instructions=writer_instructions,
             structured_outputs=True
@@ -486,25 +489,153 @@ class BlogPostGenerator(Workflow):
         # Content seems valid
         return True
 
-    def _save_markdown(self, topic: str, content: str):
-        """Save the content as a markdown file."""
+    def _save_markdown(self, topic: str, content: str) -> str:
+        """Save the content as an HTML file."""
         try:
-            # Import the save_markdown_report function
-            from save_report import save_markdown_report
+            # Get or create report directory
+            report_dir = None
+            if hasattr(self, 'file_handler') and self.file_handler:
+                report_dir = self.file_handler.report_dir
+            else:
+                # Create a default report directory if no file handler
+                report_dir = os.path.join(os.path.dirname(__file__), f"report_{datetime.now().strftime('%Y-%m-%d')}")
+                os.makedirs(report_dir, exist_ok=True)
+                logger.info(f"Created report directory: {report_dir}")
             
-            # Get the report directory and file path
-            report_path, report_file = save_markdown_report()
+            # Create filename from topic
+            filename = re.sub(r'[^\w\s-]', '', topic.lower())  # Remove special chars
+            filename = re.sub(r'[-\s]+', '-', filename)        # Replace spaces with hyphens
+            filename = f"{filename}.html"
+            file_path = os.path.join(report_dir, filename)
             
-            # Write the content to the file
-            with open(report_file, 'w', encoding='utf-8') as f:
-                f.write(content)
+            # Convert markdown to HTML with styling
+            html_content = f"""
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>{topic}</title>
+                <style>
+                    body {{
+                        font-family: Arial, sans-serif;
+                        line-height: 1.6;
+                        color: #333;
+                        max-width: 1200px;
+                        margin: 0 auto;
+                        padding: 20px;
+                    }}
+                    h1 {{
+                        color: #2c3e50;
+                        border-bottom: 2px solid #3498db;
+                        padding-bottom: 10px;
+                    }}
+                    h2 {{
+                        color: #34495e;
+                        margin-top: 30px;
+                    }}
+                    h3 {{
+                        color: #455a64;
+                    }}
+                    a {{
+                        color: #3498db;
+                        text-decoration: none;
+                    }}
+                    a:hover {{
+                        text-decoration: underline;
+                    }}
+                    .executive-summary {{
+                        background-color: #f8f9fa;
+                        border-left: 4px solid #3498db;
+                        padding: 20px;
+                        margin: 20px 0;
+                    }}
+                    .analysis-section {{
+                        margin: 30px 0;
+                    }}
+                    .source-section {{
+                        background-color: #f8f9fa;
+                        padding: 15px;
+                        margin: 10px 0;
+                        border-radius: 5px;
+                    }}
+                    .references {{
+                        margin-top: 40px;
+                        border-top: 2px solid #ecf0f1;
+                        padding-top: 20px;
+                    }}
+                    .timestamp {{
+                        color: #7f8c8d;
+                        font-size: 0.9em;
+                        margin-top: 40px;
+                        text-align: right;
+                    }}
+                    blockquote {{
+                        border-left: 3px solid #3498db;
+                        margin: 20px 0;
+                        padding-left: 20px;
+                        color: #555;
+                    }}
+                    code {{
+                        background-color: #f7f9fa;
+                        padding: 2px 5px;
+                        border-radius: 3px;
+                        font-family: monospace;
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="content">
+                    {self._markdown_to_html(content)}
+                </div>
+                <div class="timestamp">
+                    Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+                </div>
+            </body>
+            </html>
+            """
             
-            logger.info(f"Report saved successfully to: {report_file}")
-            return report_file
+            # Write the HTML file
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+            
+            logger.info(f"Successfully saved HTML report: {file_path}")
+            return file_path
             
         except Exception as e:
-            logger.error(f"Error saving markdown file: {str(e)}")
-            raise
+            logger.error(f"Failed to save HTML file: {str(e)}")
+            return None
+    
+    def _markdown_to_html(self, markdown_content: str) -> str:
+        """Convert markdown content to HTML with basic formatting."""
+        # Headers
+        html = markdown_content
+        html = re.sub(r'^# (.*?)$', r'<h1>\1</h1>', html, flags=re.MULTILINE)
+        html = re.sub(r'^## (.*?)$', r'<h2>\1</h2>', html, flags=re.MULTILINE)
+        html = re.sub(r'^### (.*?)$', r'<h3>\1</h3>', html, flags=re.MULTILINE)
+        
+        # Lists
+        html = re.sub(r'^\* (.*?)$', r'<li>\1</li>', html, flags=re.MULTILINE)
+        html = re.sub(r'(<li>.*?</li>\n)+', r'<ul>\n\g<0></ul>', html, flags=re.DOTALL)
+        
+        # Links
+        html = re.sub(r'\[(.*?)\]\((.*?)\)', r'<a href="\2">\1</a>', html)
+        
+        # Emphasis
+        html = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', html)
+        html = re.sub(r'\*(.*?)\*', r'<em>\1</em>', html)
+        
+        # Paragraphs
+        html = re.sub(r'\n\n(.*?)\n\n', r'\n<p>\1</p>\n', html, flags=re.DOTALL)
+        
+        # Blockquotes
+        html = re.sub(r'^\> (.*?)$', r'<blockquote>\1</blockquote>', html, flags=re.MULTILINE)
+        
+        # Code blocks
+        html = re.sub(r'```(.*?)```', r'<pre><code>\1</code></pre>', html, flags=re.DOTALL)
+        html = re.sub(r'`(.*?)`', r'<code>\1</code>', html)
+        
+        return html
 
     def run(self, topic: str, use_cache: bool = True) -> Iterator[RunResponse]:
         """Run the blog post generation workflow."""
@@ -628,13 +759,13 @@ class BlogPostGenerator(Workflow):
                 )
                 return
 
-        # Save as markdown
-        markdown_file = self._save_markdown(topic, content)
+        # Save as HTML
+        html_file = self._save_markdown(topic, content)
         
-        if not markdown_file:
+        if not html_file:
             yield RunResponse(
                 event=RunEvent.run_completed,
-                message="Failed to save markdown file. Please try again."
+                message="Failed to save HTML file. Please try again."
             )
             return
         
@@ -645,7 +776,7 @@ class BlogPostGenerator(Workflow):
         
         yield RunResponse(
             event=RunEvent.run_completed,
-            message=f"Report generated successfully. Markdown saved as: {markdown_file}",
+            message=f"Report generated successfully. HTML saved as: {html_file}",
             content=content
         )
         
@@ -878,8 +1009,8 @@ searcher = Agent(
     model=Nvidia(
         id="meta/llama-3.2-3b-instruct",
         api_key="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",
-        temperature=0.5,
-        top_p=0.1
+        temperature=0.4,
+        top_p=0.3
     ),
     tools=[DuckDuckGo(fixed_max_results=DUCK_DUCK_GO_FIXED_MAX_RESULTS)],
     instructions=[
@@ -897,8 +1028,8 @@ backup_searcher = Agent(
     model=Nvidia(
         id="meta/llama-3.2-3b-instruct",
         api_key="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",
-        temperature=0.5,
-        top_p=0.1
+        temperature=0.4,
+        top_p=0.3
     ),
     tools=[GoogleSearch()],
     instructions=[
@@ -916,8 +1047,8 @@ writer = Agent(
     model=Nvidia(
         id="meta/llama-3.2-3b-instruct",
         api_key="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",
-        temperature=0.2,
-        top_p=0.1
+        temperature=0.3,
+        top_p=0.2
     ),
     instructions=[
         "You are a professional research analyst tasked with creating a comprehensive report on the given topic.",
@@ -978,6 +1109,7 @@ generate_blog_post = BlogPostGenerator(
     searcher=searcher,
     backup_searcher=backup_searcher,
     writer=writer,
+    file_handler=None,  # Initialize with None
     storage=SqlWorkflowStorage(
         table_name="generate_blog_post_workflows",
         db_file="tmp/workflows.db",
