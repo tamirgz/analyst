@@ -1,7 +1,6 @@
 import json
 import re
 import time
-import logging
 import os
 import concurrent.futures
 from typing import Optional, Iterator, List, Set, Dict
@@ -25,6 +24,8 @@ from phi.utils.log import logger
 from duckduckgo_search.exceptions import RatelimitException
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 from requests.exceptions import HTTPError
+
+DUCK_DUCK_GO_FIXED_MAX_RESULTS = 10
 
 # The topic to generate a blog post on
 topic = "Is there a process of establishment of Israeli Military or Offensive Cyber Industry in Australia?"
@@ -85,10 +86,10 @@ class BlogPostGenerator(Workflow):
             model=Nvidia(
                 id="meta/llama-3.2-3b-instruct",
                 api_key="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",
-                temperature=0.3,
+                temperature=0.5,
                 top_p=0.1
             ),
-            tools=[DuckDuckGo(fixed_max_results=5)],
+            tools=[DuckDuckGo(fixed_max_results=DUCK_DUCK_GO_FIXED_MAX_RESULTS)],
             instructions=search_instructions,
             response_model=SearchResults
         )
@@ -98,7 +99,7 @@ class BlogPostGenerator(Workflow):
             model=Nvidia(
                 id="meta/llama-3.2-3b-instruct",
                 api_key="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",
-                temperature=0.3,
+                temperature=0.5,
                 top_p=0.1
             ),
             tools=[GoogleSearch()],
@@ -162,7 +163,9 @@ class BlogPostGenerator(Workflow):
         self.writer = Agent(
             model=Nvidia(
                 id="meta/llama-3.2-3b-instruct",
-                api_key="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"
+                api_key="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",
+                temperature=0.2,
+                top_p=0.1
             ),
             instructions=writer_instructions,
             structured_outputs=True
@@ -528,8 +531,15 @@ class BlogPostGenerator(Workflow):
         logger.info("Starting website crawl...")
         from file_handler import FileHandler
         crawler = WebsiteCrawler(max_pages_per_site=10)
-        crawler.file_handler = FileHandler()
+        crawler.file_handler = FileHandler()  # Initialize file handler
+        
+        # Get the report directory from the file handler
+        report_dir = crawler.file_handler.report_dir
+        
         crawled_results = crawler.crawl_all_websites(self.initial_websites, keywords)
+        
+        # Save the relevance log to the report directory
+        crawler.save_relevance_log(report_dir)
         
         if crawled_results:
             for result in crawled_results:
@@ -649,6 +659,160 @@ class WebsiteCrawler:
         self.visited_urls: Set[str] = set()
         self.results: Dict[str, List[dict]] = {}
         self.file_handler = None
+        
+        # Set up logging
+        self.relevance_log = []  # Store relevance decisions
+    
+    def _check_relevance(self, text: str, keywords: List[str]) -> tuple[bool, dict]:
+        """
+        Check if the page content is relevant based on keywords.
+        Returns a tuple of (is_relevant, relevance_info).
+        """
+        text_lower = text.lower()
+        keyword_matches = {}
+        
+        # Check each keyword and count occurrences
+        for keyword in keywords:
+            keyword_lower = keyword.lower()
+            count = text_lower.count(keyword_lower)
+            keyword_matches[keyword] = count
+        
+        # Page is relevant if any keyword is found
+        is_relevant = any(count > 0 for count in keyword_matches.values())
+        
+        # Prepare relevance information
+        relevance_info = {
+            'is_relevant': is_relevant,
+            'keyword_matches': keyword_matches,
+            'total_matches': sum(keyword_matches.values()),
+            'matching_keywords': [k for k, v in keyword_matches.items() if v > 0],
+            'text_length': len(text)
+        }
+        
+        return is_relevant, relevance_info
+
+    def crawl_page(self, url: str, keywords: List[str]) -> List[dict]:
+        """Crawl a single page and extract relevant information."""
+        try:
+            # Skip if already visited
+            if url in self.visited_urls:
+                logger.debug(f"Skipping already visited URL: {url}")
+                return []
+            
+            self.visited_urls.add(url)
+            logger.info(f"Crawling page: {url}")
+            
+            # Fetch and parse the page
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Get page title
+            title = soup.title.string if soup.title else url
+            
+            # Extract text content
+            text = ' '.join([p.get_text() for p in soup.find_all(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'])])
+            
+            # Check relevance and get detailed information
+            is_relevant, relevance_info = self._check_relevance(text, keywords)
+            
+            # Log relevance decision
+            log_entry = {
+                'url': url,
+                'title': title,
+                'timestamp': datetime.now().isoformat(),
+                'relevance_info': relevance_info
+            }
+            self.relevance_log.append(log_entry)
+            
+            # Log the decision with details
+            if is_relevant:
+              logger.info(
+                    f"Page is RELEVANT: {url}\n"
+                    f"- Title: {title}\n"
+                    f"- Matching keywords: {relevance_info['matching_keywords']}\n"
+                    f"- Total matches: {relevance_info['total_matches']}"
+                )
+            else:
+              logger.info(
+                    f"Page is NOT RELEVANT: {url}\n"
+                    f"- Title: {title}\n"
+                    f"- Checked keywords: {keywords}\n"
+                    f"- No keyword matches found in {relevance_info['text_length']} characters of text"
+                )
+            
+            results = []
+            if is_relevant:
+                # Extract links for further crawling
+                links = []
+                for link in soup.find_all('a', href=True):
+                    href = link['href']
+                    absolute_url = urljoin(url, href)
+                    if self.is_valid_url(absolute_url):
+                        links.append(absolute_url)
+                
+                # If page is relevant, process and download any supported files
+                if self.file_handler:
+                    for link in soup.find_all('a', href=True):
+                        href = link['href']
+                        absolute_url = urljoin(url, href)
+                        if self.file_handler.is_supported_file(absolute_url):
+                            downloaded_path = self.file_handler.download_file(absolute_url, source_page=url)
+                            if downloaded_path:
+                              logger.info(f"Downloaded file from relevant page: {absolute_url} to {downloaded_path}")
+                
+                # Store the relevant page information
+                results.append({
+                    'url': url,
+                    'text': text,
+                    'title': title,
+                    'links': links,
+                    'relevance_info': relevance_info
+                })
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error crawling {url}: {str(e)}")
+            return []
+    
+    def save_relevance_log(self, output_dir: str):
+        """Save the relevance log to a markdown file."""
+        try:
+            log_file = os.path.join(output_dir, 'crawl_relevance_log.md')
+            with open(log_file, 'w', encoding='utf-8') as f:
+                f.write("# Web Crawling Relevance Log\n\n")
+                
+                # Summary statistics
+                total_pages = len(self.relevance_log)
+                relevant_pages = sum(1 for entry in self.relevance_log if entry['relevance_info']['is_relevant'])
+                
+                f.write(f"## Summary\n")
+                f.write(f"- Total pages crawled: {total_pages}\n")
+                f.write(f"- Relevant pages found: {relevant_pages}\n")
+                f.write(f"- Non-relevant pages: {total_pages - relevant_pages}\n\n")
+                
+                # Relevant pages
+                f.write("## Relevant Pages\n\n")
+                for entry in self.relevance_log:
+                    if entry['relevance_info']['is_relevant']:
+                        f.write(f"### {entry['title']}\n")
+                        f.write(f"- URL: {entry['url']}\n")
+                        f.write(f"- Matching keywords: {entry['relevance_info']['matching_keywords']}\n")
+                        f.write(f"- Total matches: {entry['relevance_info']['total_matches']}\n")
+                        f.write(f"- Crawled at: {entry['timestamp']}\n\n")
+                
+                # Non-relevant pages
+                f.write("## Non-Relevant Pages\n\n")
+                for entry in self.relevance_log:
+                    if not entry['relevance_info']['is_relevant']:
+                        f.write(f"### {entry['title']}\n")
+                        f.write(f"- URL: {entry['url']}\n")
+                        f.write(f"- Text length: {entry['relevance_info']['text_length']} characters\n")
+                        f.write(f"- Crawled at: {entry['timestamp']}\n\n")
+                
+        except Exception as e:
+          logger.error(f"Error saving relevance log: {str(e)}")
 
     def is_valid_url(self, url: str) -> bool:
         """Check if URL is valid and belongs to allowed domains."""
@@ -667,52 +831,6 @@ class WebsiteCrawler:
             links.append(absolute_url)
         return links
     
-    def crawl_page(self, url: str, keywords: List[str]) -> List[dict]:
-        """Crawl a single page and extract relevant information."""
-        try:
-            # Skip if already visited
-            if url in self.visited_urls:
-                return []
-            
-            self.visited_urls.add(url)
-            
-            # Fetch and parse the page
-            response = requests.get(url, timeout=10)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Extract text and links
-            links = self.extract_text_and_links(url, soup)
-            
-            # Check relevance based on keywords
-            is_relevant = any(keyword.lower() in soup.text.lower() for keyword in keywords)
-            
-            results = []
-            if is_relevant:
-                # If page is relevant, process and download any supported files
-                if self.file_handler:
-                    for link in soup.find_all('a', href=True):
-                        href = link['href']
-                        absolute_url = urljoin(url, href)
-                        if self.file_handler.is_supported_file(absolute_url):
-                            downloaded_path = self.file_handler.download_file(absolute_url)
-                            if downloaded_path:
-                                logger.info(f"Downloaded relevant file from {absolute_url} to {downloaded_path}")
-                
-                # Store the relevant page information
-                results.append({
-                    'url': url,
-                    'text': soup.text,
-                    'title': soup.title.string if soup.title else url,
-                    'links': links
-                })
-            
-            return results
-            
-        except Exception as e:
-            logger.error(f"Error crawling {url}: {str(e)}")
-            return []
-
     def crawl_website(self, base_url: str, keywords: List[str]) -> List[dict]:
         """Crawl a website starting from the base URL."""
         to_visit = {base_url}
@@ -759,9 +877,11 @@ class WebsiteCrawler:
 searcher = Agent(
     model=Nvidia(
         id="meta/llama-3.2-3b-instruct",
-        api_key="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"
+        api_key="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",
+        temperature=0.5,
+        top_p=0.1
     ),
-    tools=[DuckDuckGo(fixed_max_results=5)],
+    tools=[DuckDuckGo(fixed_max_results=DUCK_DUCK_GO_FIXED_MAX_RESULTS)],
     instructions=[
         "Given a topic, search for 20 articles and return the 15 most relevant articles.",
         "For each article, provide:",
@@ -776,7 +896,9 @@ searcher = Agent(
 backup_searcher = Agent(
     model=Nvidia(
         id="meta/llama-3.2-3b-instruct",
-        api_key="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"
+        api_key="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",
+        temperature=0.5,
+        top_p=0.1
     ),
     tools=[GoogleSearch()],
     instructions=[
@@ -793,7 +915,9 @@ backup_searcher = Agent(
 writer = Agent(
     model=Nvidia(
         id="meta/llama-3.2-3b-instruct",
-        api_key="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"
+        api_key="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",
+        temperature=0.2,
+        top_p=0.1
     ),
     instructions=[
         "You are a professional research analyst tasked with creating a comprehensive report on the given topic.",

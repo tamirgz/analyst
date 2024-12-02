@@ -1,15 +1,12 @@
 import os
 import requests
-import logging
 from typing import Optional, List, Set
 from urllib.parse import urlparse, unquote
 from pathlib import Path
 from datetime import datetime
 from save_report import save_markdown_report
+from phi.utils.log import logger
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 class FileHandler:
     """Handler for downloading and saving files discovered during web crawling."""
