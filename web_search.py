@@ -9,6 +9,7 @@ from urllib.parse import urlparse, urljoin
 import requests
 from bs4 import BeautifulSoup
 from pydantic import BaseModel, Field
+from datetime import datetime
 
 # Phi imports
 from phi.workflow import Workflow, RunResponse, RunEvent
@@ -482,29 +483,25 @@ class BlogPostGenerator(Workflow):
         # Content seems valid
         return True
 
-    def _save_markdown(self, topic: str, content: str) -> str:
+    def _save_markdown(self, topic: str, content: str):
         """Save the content as a markdown file."""
-        # Create filename from topic
-        filename = re.sub(r'[^\w\s-]', '', topic.lower())  # Remove special chars
-        filename = re.sub(r'[-\s]+', '-', filename)        # Replace spaces with hyphens
-        filename = f"{filename}.md"
-        
-        # Ensure the content has proper markdown formatting
-        formatted_content = content
-        
-        # If content doesn't start with a title, add it
-        if not content.startswith('# '):
-            formatted_content = f"# {topic}\n\n{content}"
-        
-        # Write the markdown file
         try:
-            with open(filename, 'w', encoding='utf-8') as f:
-                f.write(formatted_content)
-            logger.info(f"Successfully saved markdown file: {filename}")
-            return filename
+            # Import the save_markdown_report function
+            from save_report import save_markdown_report
+            
+            # Get the report directory and file path
+            report_path, report_file = save_markdown_report()
+            
+            # Write the content to the file
+            with open(report_file, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            logger.info(f"Report saved successfully to: {report_file}")
+            return report_file
+            
         except Exception as e:
-            logger.error(f"Failed to save markdown file: {str(e)}")
-            return None
+            logger.error(f"Error saving markdown file: {str(e)}")
+            raise
 
     def run(self, topic: str, use_cache: bool = True) -> Iterator[RunResponse]:
         """Run the blog post generation workflow."""
