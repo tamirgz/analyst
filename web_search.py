@@ -83,7 +83,9 @@ class BlogPostGenerator(Workflow):
         self.searcher = Agent(
             model=Nvidia(
                 id="meta/llama-3.2-3b-instruct",
-                api_key="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"
+                api_key="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",
+                temperature=0.3,
+                top_p=0.1
             ),
             tools=[DuckDuckGo(fixed_max_results=5)],
             instructions=search_instructions,
@@ -94,7 +96,9 @@ class BlogPostGenerator(Workflow):
         self.backup_searcher = Agent(
             model=Nvidia(
                 id="meta/llama-3.2-3b-instruct",
-                api_key="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"
+                api_key="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",
+                temperature=0.3,
+                top_p=0.1
             ),
             tools=[GoogleSearch()],
             instructions=search_instructions,
