@@ -526,7 +526,9 @@ class BlogPostGenerator(Workflow):
         
         # Then, crawl initial websites
         logger.info("Starting website crawl...")
+        from file_handler import FileHandler
         crawler = WebsiteCrawler(max_pages_per_site=10)
+        crawler.file_handler = FileHandler()
         crawled_results = crawler.crawl_all_websites(self.initial_websites, keywords)
         
         if crawled_results:
@@ -646,7 +648,8 @@ class WebsiteCrawler:
         self.max_pages_per_site = max_pages_per_site
         self.visited_urls: Set[str] = set()
         self.results: Dict[str, List[dict]] = {}
-        
+        self.file_handler = None
+
     def is_valid_url(self, url: str) -> bool:
         """Check if URL is valid and belongs to allowed domains."""
         try:
@@ -655,63 +658,61 @@ class WebsiteCrawler:
         except:
             return False
     
-    def extract_text_and_links(self, url: str, soup: BeautifulSoup) -> tuple:
+    def extract_text_and_links(self, url: str, soup: BeautifulSoup):
         """Extract relevant text and links from a page."""
-        # Extract main content (adjust selectors based on site structure)
-        content_selectors = ['article', 'main', '.content', '#content', '.post']
-        text = ''
-        for selector in content_selectors:
-            content = soup.select_one(selector)
-            if content:
-                text = content.get_text(separator=' ', strip=True)
-                break
-        if not text:
-            text = soup.body.get_text(separator=' ', strip=True)
-        
-        # Extract links
         links = []
-        for a in soup.find_all('a', href=True):
-            href = urljoin(url, a['href'])
-            if self.is_valid_url(href):
-                links.append(href)
-        
-        return text, links
+        for link in soup.find_all('a', href=True):
+            href = link['href']
+            absolute_url = urljoin(url, href)
+            links.append(absolute_url)
+        return links
     
     def crawl_page(self, url: str, keywords: List[str]) -> List[dict]:
         """Crawl a single page and extract relevant information."""
-        if url in self.visited_urls:
-            return []
-        
-        self.visited_urls.add(url)
-        results = []
-        
         try:
+            # Skip if already visited
+            if url in self.visited_urls:
+                return []
+            
+            self.visited_urls.add(url)
+            
+            # Fetch and parse the page
             response = requests.get(url, timeout=10)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Extract title
-            title = soup.title.string if soup.title else ''
-            
             # Extract text and links
-            text, links = self.extract_text_and_links(url, soup)
+            links = self.extract_text_and_links(url, soup)
             
-            # Check relevance
-            text_lower = text.lower()
-            if any(keyword.lower() in text_lower for keyword in keywords):
+            # Check relevance based on keywords
+            is_relevant = any(keyword.lower() in soup.text.lower() for keyword in keywords)
+            
+            results = []
+            if is_relevant:
+                # If page is relevant, process and download any supported files
+                if self.file_handler:
+                    for link in soup.find_all('a', href=True):
+                        href = link['href']
+                        absolute_url = urljoin(url, href)
+                        if self.file_handler.is_supported_file(absolute_url):
+                            downloaded_path = self.file_handler.download_file(absolute_url)
+                            if downloaded_path:
+                                logger.info(f"Downloaded relevant file from {absolute_url} to {downloaded_path}")
+                
+                # Store the relevant page information
                 results.append({
-                    'title': title,
                     'url': url,
-                    'description': text[:500] + '...' if len(text) > 500 else text
+                    'text': soup.text,
+                    'title': soup.title.string if soup.title else url,
+                    'links': links
                 })
             
-            # Return both results and links for further crawling
-            return results, links
+            return results
             
         except Exception as e:
-            logger.warning(f"Failed to crawl {url}: {str(e)}")
-            return [], []
-    
+            logger.error(f"Error crawling {url}: {str(e)}")
+            return []
+
     def crawl_website(self, base_url: str, keywords: List[str]) -> List[dict]:
         """Crawl a website starting from the base URL."""
         to_visit = {base_url}
@@ -720,7 +721,7 @@ class WebsiteCrawler:
         
         while to_visit and visited_count < self.max_pages_per_site:
             url = to_visit.pop()
-            page_results, links = self.crawl_page(url, keywords)
+            page_results, links = self.crawl_page(url, keywords), self.extract_text_and_links(url, BeautifulSoup(requests.get(url, timeout=10).text, 'html.parser'))
             results.extend(page_results)
             
             # Add new links to visit
