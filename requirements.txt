@@ -1,0 +1,6 @@
+phidata
+beautifulsoup4
+requests
+pydantic
+duckduckgo-search
+tenacity
