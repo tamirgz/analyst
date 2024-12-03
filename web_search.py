@@ -25,10 +25,12 @@ from duckduckgo_search.exceptions import RatelimitException
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 from requests.exceptions import HTTPError
 
+from config import NVIDIA_API_KEY, DEFAULT_TOPIC, INITIAL_WEBSITES, SEARCHER_MODEL_CONFIG, WRITER_MODEL_CONFIG
+
 DUCK_DUCK_GO_FIXED_MAX_RESULTS = 10
 
 # The topic to generate a blog post on
-topic = "Is there a process of establishment of Israeli Military or Offensive Cyber Industry in Australia?"
+topic = DEFAULT_TOPIC
 
 class NewsArticle(BaseModel):
     """Article data model containing title, URL and description."""
@@ -47,13 +49,7 @@ class BlogPostGenerator(Workflow):
     searcher: Agent = Field(...)
     backup_searcher: Agent = Field(...)
     writer: Agent = Field(...)
-    initial_websites: List[str] = Field(default_factory=lambda: [
-        "https://www.bellingcat.com/",
-        "https://worldview.stratfor.com/",
-        "https://thesoufancenter.org/",
-        "https://www.globalsecurity.org/",
-        "https://www.defenseone.com/"
-    ])
+    initial_websites: List[str] = Field(default_factory=lambda: INITIAL_WEBSITES)
     file_handler: Optional[Any] = Field(None)
 
     def __init__(
@@ -87,10 +83,10 @@ class BlogPostGenerator(Workflow):
         # Primary searcher using DuckDuckGo
         self.searcher = Agent(
             model=Nvidia(
-                id="meta/llama-3.2-3b-instruct",
-                api_key="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",
-                temperature=0.4,
-                top_p=0.3
+                id=SEARCHER_MODEL_CONFIG["id"],
+                api_key=NVIDIA_API_KEY,
+                temperature=SEARCHER_MODEL_CONFIG["temperature"],
+                top_p=SEARCHER_MODEL_CONFIG["top_p"]
             ),
             tools=[DuckDuckGo(fixed_max_results=DUCK_DUCK_GO_FIXED_MAX_RESULTS)],
             instructions=search_instructions,
@@ -100,10 +96,10 @@ class BlogPostGenerator(Workflow):
         # Backup searcher using Google Search
         self.backup_searcher = Agent(
             model=Nvidia(
-                id="meta/llama-3.2-3b-instruct",
-                api_key="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",
-                temperature=0.4,
-                top_p=0.3
+                id=SEARCHER_MODEL_CONFIG["id"],
+                api_key=NVIDIA_API_KEY,
+                temperature=SEARCHER_MODEL_CONFIG["temperature"],
+                top_p=SEARCHER_MODEL_CONFIG["top_p"]
             ),
             tools=[GoogleSearch()],
             instructions=search_instructions,
@@ -165,10 +161,10 @@ class BlogPostGenerator(Workflow):
         
         self.writer = Agent(
             model=Nvidia(
-                id="meta/llama-3.2-3b-instruct",
-                api_key="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",
-                temperature=0.2,
-                top_p=0.2
+                id=WRITER_MODEL_CONFIG["id"],
+                api_key=NVIDIA_API_KEY,
+                temperature=WRITER_MODEL_CONFIG["temperature"],
+                top_p=WRITER_MODEL_CONFIG["top_p"]
             ),
             instructions=writer_instructions,
             structured_outputs=True
@@ -1007,10 +1003,10 @@ class WebsiteCrawler:
 # Create the workflow
 searcher = Agent(
     model=Nvidia(
-        id="meta/llama-3.2-3b-instruct",
-        api_key="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",
-        temperature=0.4,
-        top_p=0.3
+        id=SEARCHER_MODEL_CONFIG["id"],
+        api_key=NVIDIA_API_KEY,
+        temperature=SEARCHER_MODEL_CONFIG["temperature"],
+        top_p=SEARCHER_MODEL_CONFIG["top_p"]
     ),
     tools=[DuckDuckGo(fixed_max_results=DUCK_DUCK_GO_FIXED_MAX_RESULTS)],
     instructions=[
@@ -1021,15 +1017,16 @@ searcher = Agent(
         "- description: A brief description or summary",
         "Return the results in a structured format with these exact field names."
     ],
-    response_model=SearchResults
+    response_model=SearchResults,
+    structured_outputs=True
 )
 
 backup_searcher = Agent(
     model=Nvidia(
-        id="meta/llama-3.2-3b-instruct",
-        api_key="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",
-        temperature=0.4,
-        top_p=0.3
+        id=SEARCHER_MODEL_CONFIG["id"],
+        api_key=NVIDIA_API_KEY,
+        temperature=SEARCHER_MODEL_CONFIG["temperature"],
+        top_p=SEARCHER_MODEL_CONFIG["top_p"]
     ),
     tools=[GoogleSearch()],
     instructions=[
@@ -1040,15 +1037,16 @@ backup_searcher = Agent(
         "- description: A brief description or summary",
         "Return the results in a structured format with these exact field names."
     ],
-    response_model=SearchResults
+    response_model=SearchResults,
+    structured_outputs=True
 )
 
 writer = Agent(
     model=Nvidia(
-        id="meta/llama-3.2-3b-instruct",
-        api_key="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",
-        temperature=0.3,
-        top_p=0.2
+        id=WRITER_MODEL_CONFIG["id"],
+        api_key=NVIDIA_API_KEY,
+        temperature=WRITER_MODEL_CONFIG["temperature"],
+        top_p=WRITER_MODEL_CONFIG["top_p"]
     ),
     instructions=[
         "You are a professional research analyst tasked with creating a comprehensive report on the given topic.",
