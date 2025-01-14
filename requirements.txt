@@ -4,3 +4,4 @@ requests
 pydantic
 duckduckgo-search
 tenacity
+streamlit
