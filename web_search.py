@@ -14,7 +14,7 @@ from datetime import datetime
 from phi.workflow import Workflow, RunResponse, RunEvent
 from phi.storage.workflow.sqlite import SqlWorkflowStorage
 from phi.agent import Agent
-from phi.model.nvidia import Nvidia  
+from phi.model.groq import Groq  
 from phi.tools.duckduckgo import DuckDuckGo
 from phi.tools.googlesearch import GoogleSearch
 from phi.utils.pprint import pprint_run_response
@@ -25,7 +25,7 @@ from duckduckgo_search.exceptions import RatelimitException
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 from requests.exceptions import HTTPError
 
-from config import NVIDIA_API_KEY, SEARCHER_MODEL_CONFIG, WRITER_MODEL_CONFIG
+from config import GROQ_API_KEY, NVIDIA_API_KEY, SEARCHER_MODEL_CONFIG, WRITER_MODEL_CONFIG
 import configparser
 
 DUCK_DUCK_GO_FIXED_MAX_RESULTS = 10
@@ -88,9 +88,9 @@ class BlogPostGenerator(Workflow):
         
         # Primary searcher using DuckDuckGo
         self.searcher = Agent(
-            model=Nvidia(
+            model=Groq(
                 id=SEARCHER_MODEL_CONFIG["id"],
-                api_key=NVIDIA_API_KEY,
+                api_key=GROQ_API_KEY,
                 temperature=SEARCHER_MODEL_CONFIG["temperature"],
                 top_p=SEARCHER_MODEL_CONFIG["top_p"]
             ),
@@ -101,9 +101,9 @@ class BlogPostGenerator(Workflow):
         
         # Backup searcher using Google Search
         self.backup_searcher = Agent(
-            model=Nvidia(
+            model=Groq(
                 id=SEARCHER_MODEL_CONFIG["id"],
-                api_key=NVIDIA_API_KEY,
+                api_key=GROQ_API_KEY,
                 temperature=SEARCHER_MODEL_CONFIG["temperature"],
                 top_p=SEARCHER_MODEL_CONFIG["top_p"]
             ),
@@ -166,9 +166,9 @@ class BlogPostGenerator(Workflow):
         ]
         
         self.writer = Agent(
-            model=Nvidia(
+            model=Groq(
                 id=WRITER_MODEL_CONFIG["id"],
-                api_key=NVIDIA_API_KEY,
+                api_key=GROQ_API_KEY,
                 temperature=WRITER_MODEL_CONFIG["temperature"],
                 top_p=WRITER_MODEL_CONFIG["top_p"]
             ),
@@ -1014,9 +1014,9 @@ class WebsiteCrawler:
 
 # Create the workflow
 searcher = Agent(
-    model=Nvidia(
+    model=Groq(
         id=SEARCHER_MODEL_CONFIG["id"],
-        api_key=NVIDIA_API_KEY,
+        api_key=GROQ_API_KEY,
         temperature=SEARCHER_MODEL_CONFIG["temperature"],
         top_p=SEARCHER_MODEL_CONFIG["top_p"]
     ),
@@ -1034,9 +1034,9 @@ searcher = Agent(
 )
 
 backup_searcher = Agent(
-    model=Nvidia(
+    model=Groq(
         id=SEARCHER_MODEL_CONFIG["id"],
-        api_key=NVIDIA_API_KEY,
+        api_key=GROQ_API_KEY,
         temperature=SEARCHER_MODEL_CONFIG["temperature"],
         top_p=SEARCHER_MODEL_CONFIG["top_p"]
     ),
@@ -1054,9 +1054,9 @@ backup_searcher = Agent(
 )
 
 writer = Agent(
-    model=Nvidia(
+    model=Groq(
         id=WRITER_MODEL_CONFIG["id"],
-        api_key=NVIDIA_API_KEY,
+        api_key=GROQ_API_KEY,
         temperature=WRITER_MODEL_CONFIG["temperature"],
         top_p=WRITER_MODEL_CONFIG["top_p"]
     ),
