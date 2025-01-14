@@ -25,9 +25,15 @@ from duckduckgo_search.exceptions import RatelimitException
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 from requests.exceptions import HTTPError
 
-from config import NVIDIA_API_KEY, DEFAULT_TOPIC, INITIAL_WEBSITES, SEARCHER_MODEL_CONFIG, WRITER_MODEL_CONFIG
+from config import NVIDIA_API_KEY, SEARCHER_MODEL_CONFIG, WRITER_MODEL_CONFIG
+import configparser
 
 DUCK_DUCK_GO_FIXED_MAX_RESULTS = 10
+
+config = configparser.ConfigParser()
+config.read('config.ini')
+DEFAULT_TOPIC = config.get('DEFAULT', 'default_topic')
+INITIAL_WEBSITES = config.get('DEFAULT', 'initial_websites')
 
 # The topic to generate a blog post on
 topic = DEFAULT_TOPIC
@@ -983,6 +989,12 @@ class WebsiteCrawler:
         """Crawl multiple websites in parallel."""
         all_results = []
         
+        if isinstance(websites, str):
+            # Remove the brackets and split by comma
+            websites = websites.strip('[]').replace('"', '').replace(" ","").split(',')
+            # Clean up any whitespace
+            websites = [url.strip("'") for url in websites]
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             future_to_url = {
                 executor.submit(self.crawl_website, url, keywords): url 

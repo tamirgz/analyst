@@ -3,17 +3,16 @@
 # API Key for NVIDIA API
 NVIDIA_API_KEY = "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"
 
-# Default topic (can be overridden via command line)
-DEFAULT_TOPIC = "Is there a process of establishment of Israeli Military or Offensive Cyber Industry in Australia?"
+# DEFAULT_TOPIC = "Is there a process of establishment of Israeli Military or Offensive Cyber Industry in Australia?"
 
-# Initial websites for crawling
-INITIAL_WEBSITES = [
-    "https://www.bellingcat.com/",
-    "https://worldview.stratfor.com/",
-    "https://thesoufancenter.org/",
-    "https://www.globalsecurity.org/",
-    "https://www.defenseone.com/"
-]
+# # Initial websites for crawling
+# INITIAL_WEBSITES = [
+#     "https://www.bellingcat.com/",
+#     "https://worldview.stratfor.com/",
+#     "https://thesoufancenter.org/",
+#     "https://www.globalsecurity.org/",
+#     "https://www.defenseone.com/"
+# ]
 
 # Model configuration
 SEARCHER_MODEL_CONFIG = {
