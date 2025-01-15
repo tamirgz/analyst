@@ -25,7 +25,7 @@ from duckduckgo_search.exceptions import RatelimitException
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 from requests.exceptions import HTTPError
 
-from config import GROQ_API_KEY, NVIDIA_API_KEY, SEARCHER_MODEL_CONFIG, WRITER_MODEL_CONFIG
+from config import GROQ_API_KEY, NVIDIA_API_KEY, SEARCHER_MODEL_CONFIG, WRITER_MODEL_CONFIG, get_groq_model
 import configparser
 
 DUCK_DUCK_GO_FIXED_MAX_RESULTS = 10
@@ -88,29 +88,21 @@ class BlogPostGenerator(Workflow):
         
         # Primary searcher using DuckDuckGo
         self.searcher = Agent(
-            model=Groq(
-                id=SEARCHER_MODEL_CONFIG["id"],
-                api_key=GROQ_API_KEY,
-                temperature=SEARCHER_MODEL_CONFIG["temperature"],
-                top_p=SEARCHER_MODEL_CONFIG["top_p"]
-            ),
+            model=get_groq_model('searcher'),
             tools=[DuckDuckGo(fixed_max_results=DUCK_DUCK_GO_FIXED_MAX_RESULTS)],
             instructions=search_instructions,
             response_model=SearchResults
         )
+
         
         # Backup searcher using Google Search
         self.backup_searcher = Agent(
-            model=Groq(
-                id=SEARCHER_MODEL_CONFIG["id"],
-                api_key=GROQ_API_KEY,
-                temperature=SEARCHER_MODEL_CONFIG["temperature"],
-                top_p=SEARCHER_MODEL_CONFIG["top_p"]
-            ),
+            model=get_groq_model('searcher'),
             tools=[GoogleSearch()],
             instructions=search_instructions,
             response_model=SearchResults
         )
+
 
         # Writer agent configuration
         writer_instructions = [
@@ -166,15 +158,11 @@ class BlogPostGenerator(Workflow):
         ]
         
         self.writer = Agent(
-            model=Groq(
-                id=WRITER_MODEL_CONFIG["id"],
-                api_key=GROQ_API_KEY,
-                temperature=WRITER_MODEL_CONFIG["temperature"],
-                top_p=WRITER_MODEL_CONFIG["top_p"]
-            ),
+            model=get_groq_model('writer'),
             instructions=writer_instructions,
             structured_outputs=True
         )
+
 
     def _parse_search_response(self, response) -> Optional[SearchResults]:
         """Parse and validate search response into SearchResults model."""
@@ -1014,13 +1002,9 @@ class WebsiteCrawler:
 
 # Create the workflow
 searcher = Agent(
-    model=Groq(
-        id=SEARCHER_MODEL_CONFIG["id"],
-        api_key=GROQ_API_KEY,
-        temperature=SEARCHER_MODEL_CONFIG["temperature"],
-        top_p=SEARCHER_MODEL_CONFIG["top_p"]
-    ),
+    model=get_groq_model('searcher'),
     tools=[DuckDuckGo(fixed_max_results=DUCK_DUCK_GO_FIXED_MAX_RESULTS)],
+
     instructions=[
         "Given a topic, search for 20 articles and return the 15 most relevant articles.",
         "For each article, provide:",
@@ -1034,13 +1018,9 @@ searcher = Agent(
 )
 
 backup_searcher = Agent(
-    model=Groq(
-        id=SEARCHER_MODEL_CONFIG["id"],
-        api_key=GROQ_API_KEY,
-        temperature=SEARCHER_MODEL_CONFIG["temperature"],
-        top_p=SEARCHER_MODEL_CONFIG["top_p"]
-    ),
+    model=get_groq_model('searcher'),
     tools=[GoogleSearch()],
+
     instructions=[
         "Given a topic, search for 20 articles and return the 15 most relevant articles.",
         "For each article, provide:",
@@ -1054,13 +1034,9 @@ backup_searcher = Agent(
 )
 
 writer = Agent(
-    model=Groq(
-        id=WRITER_MODEL_CONFIG["id"],
-        api_key=GROQ_API_KEY,
-        temperature=WRITER_MODEL_CONFIG["temperature"],
-        top_p=WRITER_MODEL_CONFIG["top_p"]
-    ),
+    model=get_groq_model('writer'),
     instructions=[
+
         "You are a professional research analyst tasked with creating a comprehensive report on the given topic.",
         "The sources provided include both general web search results and specialized intelligence/security websites.",
         "Carefully analyze and cross-reference information from all sources to create a detailed report.",
