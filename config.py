@@ -21,7 +21,7 @@ TOGETHER_API_KEY = "2cbe6e8b3620661ae7a9a963998e9d0d7a9122f486646056adbf57eff490
 
 # Model configuration
 SEARCHER_MODEL_CONFIG = {
-    "id": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    "id": "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
     "temperature": 0.4,
     "top_p": 0.3,
     "repetition_penalty": 1
@@ -29,7 +29,7 @@ SEARCHER_MODEL_CONFIG = {
 
 # Model configuration
 WRITER_MODEL_CONFIG = {
-    "id": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    "id": "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
     "temperature": 0.2,
     "top_p": 0.2,
     "repetition_penalty": 1
