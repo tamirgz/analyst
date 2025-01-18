@@ -25,7 +25,7 @@ from duckduckgo_search.exceptions import RatelimitException
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 from requests.exceptions import HTTPError
 
-from config import GROQ_API_KEY, NVIDIA_API_KEY, SEARCHER_MODEL_CONFIG, WRITER_MODEL_CONFIG, get_groq_model
+from config import GROQ_API_KEY, NVIDIA_API_KEY, SEARCHER_MODEL_CONFIG, WRITER_MODEL_CONFIG, get_together_model
 import configparser
 
 DUCK_DUCK_GO_FIXED_MAX_RESULTS = 10
@@ -88,7 +88,7 @@ class BlogPostGenerator(Workflow):
         
         # Primary searcher using DuckDuckGo
         self.searcher = Agent(
-            model=get_groq_model('searcher'),
+            model=get_together_model('searcher'),
             tools=[DuckDuckGo(fixed_max_results=DUCK_DUCK_GO_FIXED_MAX_RESULTS)],
             instructions=search_instructions,
             response_model=SearchResults
@@ -97,7 +97,7 @@ class BlogPostGenerator(Workflow):
         
         # Backup searcher using Google Search
         self.backup_searcher = Agent(
-            model=get_groq_model('searcher'),
+            model=get_together_model('searcher'),
             tools=[GoogleSearch()],
             instructions=search_instructions,
             response_model=SearchResults
@@ -158,7 +158,7 @@ class BlogPostGenerator(Workflow):
         ]
         
         self.writer = Agent(
-            model=get_groq_model('writer'),
+            model=get_together_model('writer'),
             instructions=writer_instructions,
             structured_outputs=True
         )
@@ -1002,7 +1002,7 @@ class WebsiteCrawler:
 
 # Create the workflow
 searcher = Agent(
-    model=get_groq_model('searcher'),
+    model=get_together_model('searcher'),
     tools=[DuckDuckGo(fixed_max_results=DUCK_DUCK_GO_FIXED_MAX_RESULTS)],
 
     instructions=[
@@ -1018,7 +1018,7 @@ searcher = Agent(
 )
 
 backup_searcher = Agent(
-    model=get_groq_model('searcher'),
+    model=get_together_model('searcher'),
     tools=[GoogleSearch()],
 
     instructions=[
@@ -1034,7 +1034,7 @@ backup_searcher = Agent(
 )
 
 writer = Agent(
-    model=get_groq_model('writer'),
+    model=get_together_model('writer'),
     instructions=[
 
         "You are a professional research analyst tasked with creating a comprehensive report on the given topic.",
