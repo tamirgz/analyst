@@ -51,25 +51,25 @@ CRAWLER_CONFIG = {
     "min_relevance_score": 0.5
 }
 
-def get_hf_model(purpose: str) -> Together:
+def get_hf_model(purpose: str) -> HuggingFaceChat:
     """
-    Factory function to create Together models with specific configurations.
+    Factory function to create HuggingFaceChat models with specific configurations.
     
     Args:
         purpose: Either 'searcher' or 'writer' to determine which configuration to use
         
     Returns:
-        Configured Together model instance
+        Configured HuggingFaceChat model instance
     """
     if purpose == 'searcher':
-        return Together(
+        return HuggingFaceChat(
             id=SEARCHER_MODEL_CONFIG["id"],
             api_key=HF_API_KEY,
             temperature=SEARCHER_MODEL_CONFIG["temperature"],
             top_p=SEARCHER_MODEL_CONFIG["top_p"],
         )
     elif purpose == 'writer':
-        return Together(
+        return HuggingFaceChat(
             id=WRITER_MODEL_CONFIG["id"],
             api_key=HF_API_KEY,
             temperature=WRITER_MODEL_CONFIG["temperature"],
