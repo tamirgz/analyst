@@ -2,11 +2,13 @@
 
 from phi.model.groq import Groq
 from phi.model.together import Together
+from phi.model.huggingface import HuggingFaceChat
 
 # API Key for NVIDIA API
 NVIDIA_API_KEY = "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"
 GROQ_API_KEY = "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"
 TOGETHER_API_KEY = "2cbe6e8b3620661ae7a9a963998e9d0d7a9122f486646056adbf57eff49080e4"
+HF_API_KEY = "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"
 
 # DEFAULT_TOPIC = "Is there a process of establishment of Israeli Military or Offensive Cyber Industry in Australia?"
 
@@ -21,7 +23,7 @@ TOGETHER_API_KEY = "2cbe6e8b3620661ae7a9a963998e9d0d7a9122f486646056adbf57eff490
 
 # Model configuration
 SEARCHER_MODEL_CONFIG = {
-    "id": "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
+    "id": "Trelis/Meta-Llama-3-70B-Instruct-function-calling",
     "temperature": 0.4,
     "top_p": 0.3,
     "repetition_penalty": 1
@@ -29,7 +31,7 @@ SEARCHER_MODEL_CONFIG = {
 
 # Model configuration
 WRITER_MODEL_CONFIG = {
-    "id": "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
+    "id": "Trelis/Meta-Llama-3-70B-Instruct-function-calling",
     "temperature": 0.2,
     "top_p": 0.2,
     "repetition_penalty": 1
@@ -48,6 +50,33 @@ CRAWLER_CONFIG = {
     "max_pages_per_site": 10,
     "min_relevance_score": 0.5
 }
+
+def get_hf_model(purpose: str) -> Together:
+    """
+    Factory function to create Together models with specific configurations.
+    
+    Args:
+        purpose: Either 'searcher' or 'writer' to determine which configuration to use
+        
+    Returns:
+        Configured Together model instance
+    """
+    if purpose == 'searcher':
+        return Together(
+            id=SEARCHER_MODEL_CONFIG["id"],
+            api_key=HF_API_KEY,
+            temperature=SEARCHER_MODEL_CONFIG["temperature"],
+            top_p=SEARCHER_MODEL_CONFIG["top_p"],
+        )
+    elif purpose == 'writer':
+        return Together(
+            id=WRITER_MODEL_CONFIG["id"],
+            api_key=HF_API_KEY,
+            temperature=WRITER_MODEL_CONFIG["temperature"],
+            top_p=WRITER_MODEL_CONFIG["top_p"]
+        )
+    else:
+        raise ValueError(f"Unknown purpose: {purpose}. Must be 'searcher' or 'writer'")
 
 def get_together_model(purpose: str) -> Together:
     """
