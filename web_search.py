@@ -766,7 +766,7 @@ class BlogPostGenerator(Workflow):
         
         yield RunResponse(
             event=RunEvent.run_completed,
-            message=f"Report generated successfully. HTML saved as: {html_file}",
+            messages=f"Report generated successfully. HTML saved as: {html_file}",
             content=content
         )
         
