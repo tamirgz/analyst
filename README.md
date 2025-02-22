@@ -72,7 +72,7 @@ from phi.tools import DuckDuckGo, GoogleSearch
 
 # Configure custom agents
 searcher = Agent(
-    model=Nvidia(
+    model=Groq(
         id="meta/llama-3.2-3b-instruct",
         temperature=0.3,
         top_p=0.1

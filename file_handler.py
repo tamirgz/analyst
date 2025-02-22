@@ -5,7 +5,7 @@ from urllib.parse import urlparse, unquote
 from pathlib import Path
 from datetime import datetime
 from save_report import save_markdown_report
-from phi.utils.log import logger
+from agno.utils.log import logger
 
 
 class FileHandler:

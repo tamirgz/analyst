@@ -1,8 +1,9 @@
 """Configuration settings for the web search and report generation system."""
 
 # API Key for NVIDIA API
-NVIDIA_API_KEY = "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"
-
+# NVIDIA_API_KEY = "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"
+NVIDIA_API_KEY = "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"
+# NVIDIA_API_KEY = "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"
 # Default topic (can be overridden via command line)
 DEFAULT_TOPIC = "Is there a process of establishment of Israeli Military or Offensive Cyber Industry in Australia?"
 
@@ -17,14 +18,14 @@ INITIAL_WEBSITES = [
 
 # Model configuration
 SEARCHER_MODEL_CONFIG = {
-    "id": "meta/llama-3.2-3b-instruct",
+    "id": "llama-3.3-70b-versatile",
     "temperature": 0.4,
     "top_p": 0.3
 }
 
 # Model configuration
 WRITER_MODEL_CONFIG = {
-    "id": "meta/llama-3.2-3b-instruct",
+    "id": "llama-3.3-70b-versatile",
     "temperature": 0.2,
     "top_p": 0.2
 }
