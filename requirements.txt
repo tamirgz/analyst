@@ -1,6 +1,11 @@
-phidata
+agno
+googlesearch-python
 beautifulsoup4
 requests
 pydantic
 duckduckgo-search
+google-search
 tenacity
+groq
+sqlalchemy
+pycountry
