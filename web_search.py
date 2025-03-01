@@ -20,19 +20,30 @@ from agno.tools.googlesearch import GoogleSearchTools
 from agno.utils.pprint import pprint_run_response
 from agno.utils.log import logger
 
-import logging
+import logging, configparser
 
 # Error handling imports
 from duckduckgo_search.exceptions import RatelimitException
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 from requests.exceptions import HTTPError
 
-from config import DEFAULT_TOPIC, INITIAL_WEBSITES, GROQ_API_KEY, SEARCHER_MODEL_CONFIG, WRITER_MODEL_CONFIG, get_groq_model
+from config import GROQ_API_KEY, SEARCHER_MODEL_CONFIG, WRITER_MODEL_CONFIG, get_groq_model
 
 DUCK_DUCK_GO_FIXED_MAX_RESULTS = 10
 
 # Add at the top of the file after the logger import
 logger.setLevel(logging.DEBUG)
+
+config = configparser.ConfigParser()
+config.read('config.ini')
+DEFAULT_TOPIC = config.get('DEFAULT', 'default_topic')
+INITIAL_WEBSITES = config.get('DEFAULT', 'initial_websites')
+
+# Convert initial_websites to a list if it's a string
+if isinstance(INITIAL_WEBSITES, str):
+    INITIAL_WEBSITES = [website.strip() for website in INITIAL_WEBSITES.split(',')]
+else:
+    INITIAL_WEBSITES = []  # Initialize as empty list if not a string
 
 # The topic to generate a blog post on
 topic = DEFAULT_TOPIC
