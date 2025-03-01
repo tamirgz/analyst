@@ -11,29 +11,28 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 
 # Phi imports
-from phi.workflow import Workflow, RunResponse, RunEvent
-from phi.storage.workflow.sqlite import SqlWorkflowStorage
-from phi.agent import Agent
-from phi.model.groq import Groq  
-from phi.tools.duckduckgo import DuckDuckGo
-from phi.tools.googlesearch import GoogleSearch
-from phi.utils.pprint import pprint_run_response
-from phi.utils.log import logger
+from agno.workflow import Workflow, RunResponse, RunEvent
+from agno.storage.workflow.sqlite import SqliteWorkflowStorage
+from agno.agent import Agent
+from agno.models.groq import Groq
+from agno.tools.duckduckgo import DuckDuckGoTools
+from agno.tools.googlesearch import GoogleSearchTools
+from agno.utils.pprint import pprint_run_response
+from agno.utils.log import logger
+
+import logging
 
 # Error handling imports
 from duckduckgo_search.exceptions import RatelimitException
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 from requests.exceptions import HTTPError
 
-from config import GROQ_API_KEY, NVIDIA_API_KEY, SEARCHER_MODEL_CONFIG, WRITER_MODEL_CONFIG, get_groq_model
-import configparser
+from config import DEFAULT_TOPIC, INITIAL_WEBSITES, GROQ_API_KEY, SEARCHER_MODEL_CONFIG, WRITER_MODEL_CONFIG, get_groq_model
 
 DUCK_DUCK_GO_FIXED_MAX_RESULTS = 10
 
-config = configparser.ConfigParser()
-config.read('config.ini')
-DEFAULT_TOPIC = config.get('DEFAULT', 'default_topic')
-INITIAL_WEBSITES = config.get('DEFAULT', 'initial_websites')
+# Add at the top of the file after the logger import
+logger.setLevel(logging.DEBUG)
 
 # The topic to generate a blog post on
 topic = DEFAULT_TOPIC
@@ -44,18 +43,16 @@ class NewsArticle(BaseModel):
     url: str = Field(..., description="Link to the article.")
     description: Optional[str] = Field(None, description="Summary of the article if available.")
 
-
 class SearchResults(BaseModel):
     """Container for search results containing a list of articles."""
     articles: List[NewsArticle]
-
 
 class BlogPostGenerator(Workflow):
     """Workflow for generating blog posts based on web research."""
     searcher: Agent = Field(...)
     backup_searcher: Agent = Field(...)
     writer: Agent = Field(...)
-    initial_websites: List[str] = Field(default_factory=lambda: INITIAL_WEBSITES)
+    initial_websites: List[str] = Field(default_factory=list)  # Changed this line
     file_handler: Optional[Any] = Field(None)
 
     def __init__(
@@ -65,16 +62,19 @@ class BlogPostGenerator(Workflow):
         backup_searcher: Agent,
         writer: Agent,
         file_handler: Optional[Any] = None,
-        storage: Optional[SqlWorkflowStorage] = None,
+        storage: Optional[SqliteWorkflowStorage] = None,
+        initial_websites: Optional[List[str]] = None,  # Added this parameter
     ):
         super().__init__(
             session_id=session_id,
-            searcher=searcher,
-            backup_searcher=backup_searcher,
-            writer=writer,
             storage=storage,
         )
         self.file_handler = file_handler
+        self.searcher = searcher
+        self.backup_searcher = backup_searcher
+        self.writer = writer
+        # Initialize initial_websites with the provided list or default
+        self.initial_websites = initial_websites if initial_websites is not None else INITIAL_WEBSITES.copy()
         
         # Configure search instructions
         search_instructions = [
@@ -89,20 +89,18 @@ class BlogPostGenerator(Workflow):
         # Primary searcher using DuckDuckGo
         self.searcher = Agent(
             model=get_groq_model('searcher'),
-            tools=[DuckDuckGo(fixed_max_results=DUCK_DUCK_GO_FIXED_MAX_RESULTS)],
+            tools=[DuckDuckGoTools(fixed_max_results=DUCK_DUCK_GO_FIXED_MAX_RESULTS)],
             instructions=search_instructions,
-            response_model=SearchResults
+            # response_model=SearchResults
         )
-
         
         # Backup searcher using Google Search
         self.backup_searcher = Agent(
             model=get_groq_model('searcher'),
-            tools=[GoogleSearch()],
+            tools=[GoogleSearchTools()],
             instructions=search_instructions,
-            response_model=SearchResults
+            # response_model=SearchResults
         )
-
 
         # Writer agent configuration
         writer_instructions = [
@@ -163,54 +161,84 @@ class BlogPostGenerator(Workflow):
             structured_outputs=True
         )
 
-
     def _parse_search_response(self, response) -> Optional[SearchResults]:
         """Parse and validate search response into SearchResults model."""
         try:
+            # Add debug logging for initial response
+            logger.debug(f"Response type: {type(response)}")
+            logger.debug(f"Raw response content: {response[:500]}..." if isinstance(response, str) else str(response)[:500])
+
             if isinstance(response, str):
                 # Clean up markdown code blocks and extract JSON
                 content = response.strip()
+                
+                # Add debug logging for content before processing
+                logger.debug(f"Content before processing: {content[:500]}...")
+
                 if '```' in content:
                     # Extract content between code block markers
-                    match = re.search(r'```(?:json)?\n(.*?)\n```', content, re.DOTALL)
-                    if match:
-                        content = match.group(1).strip()
-                    else:
+                    matches = re.finditer(r'```(?:json)?\n(.*?)\n```', content, re.DOTALL)
+                    json_blocks = [match.group(1).strip() for match in matches]
+                    
+                    # Try each JSON block until we find a valid one
+                    for json_block in json_blocks:
+                        try:
+                            data = json.loads(json_block)
+                            if isinstance(data, dict) and 'articles' in data:
+                                logger.debug(f"Found valid JSON block: {json_block[:500]}...")
+                                content = json_block
+                                break
+                        except json.JSONDecodeError:
+                            continue
+                    
+                    if not json_blocks:
                         # If no proper code block found, remove all ``` markers
                         content = re.sub(r'```(?:json)?\n?', '', content)
                         content = content.strip()
                 
+                # Add debug logging for content after markdown cleanup
+                logger.debug(f"Content after markdown cleanup: {content[:500]}...")
+
                 # Try to parse JSON response
                 try:
                     # Clean up any trailing commas before closing brackets/braces
                     content = re.sub(r',(\s*[}\]])', r'\1', content)
                     # Fix invalid escape sequences
-                    content = re.sub(r'\\([^"\\\/bfnrtu])', r'\1', content)  # Remove invalid escapes
-                    content = content.replace('\t', ' ')  # Replace tabs with spaces
+                    content = re.sub(r'\\([^"\\\/bfnrtu])', r'\1', content)
+                    content = content.replace('\t', ' ')
                     # Handle any remaining unicode escapes
                     content = re.sub(r'\\u([0-9a-fA-F]{4})', lambda m: chr(int(m.group(1), 16)), content)
                     
-                    data = json.loads(content)
+                    # Add debug logging for content after cleanup
+                    logger.debug(f"Content after cleanup: {content[:500]}...")
+
+                    # Try parsing with different JSON structures
+                    try:
+                        data = json.loads(content)
+                    except json.JSONDecodeError:
+                        # Try wrapping in articles array if not already
+                        if not content.strip().startswith('{'):
+                            content = f'{{"articles": {content}}}'
+                            data = json.loads(content)
                     
                     if isinstance(data, dict) and 'articles' in data:
                         articles = []
                         for article in data['articles']:
                             if isinstance(article, dict):
-                                # Ensure all required fields are strings
                                 article = {
                                     'title': str(article.get('title', '')).strip(),
                                     'url': str(article.get('url', '')).strip(),
                                     'description': str(article.get('description', '')).strip()
                                 }
-                                if article['title'] and article['url']:  # Only add if has required fields
+                                if article['title'] and article['url']:
                                     articles.append(NewsArticle(**article))
                         
                         if articles:
                             logger.info(f"Successfully parsed {len(articles)} articles from JSON")
                             return SearchResults(articles=articles)
-                        
+                    
                 except json.JSONDecodeError as e:
-                    logger.warning(f"Failed to parse JSON response: {str(e)}, attempting to extract data manually")
+                    logger.warning(f"Failed to parse JSON response: {str(e)}\nContent: {content[:500]}...")
                     
                 # Fallback to regex extraction if JSON parsing fails
                 urls = re.findall(r'https?://[^\s<>"]+|www\.[^\s<>"]+', content)
@@ -271,16 +299,17 @@ class BlogPostGenerator(Workflow):
                 return response
                 
             elif isinstance(response, RunResponse):
-                # Extract from RunResponse
+                # Add debug logging for RunResponse
+                logger.debug(f"Processing RunResponse: {str(response.content)[:500] if response.content else 'No content'}")
                 if response.content:
                     return self._parse_search_response(response.content)
                 return None
-                
+
             logger.error(f"Unsupported response type: {type(response)}")
             return None
-            
+                
         except Exception as e:
-            logger.error(f"Error parsing search response: {str(e)}")
+            logger.error(f"Error parsing search response: {str(e)}", exc_info=True)
             return None
 
     def _search_with_retry(self, topic: str, use_backup: bool = False, max_retries: int = 3) -> Optional[SearchResults]:
@@ -296,59 +325,63 @@ class BlogPostGenerator(Workflow):
                 if source in rate_limited_sources:
                     logger.warning(f"{source} search is rate limited, switching to alternative method")
                     if not use_backup:
-                        # Try backup search if primary is rate limited
-                        backup_results = self._search_with_retry(topic, use_backup=True, max_retries=max_retries)
-                        if backup_results:
-                            return backup_results
-                    # If both sources are rate limited, use longer backoff
-                    backoff_time = min(3600, 60 * (2 ** attempt))  # Max 1 hour backoff
+                        return self._search_with_retry(topic, use_backup=True, max_retries=max_retries)
+                    backoff_time = min(3600, 60 * (2 ** attempt))
                     logger.info(f"All search methods rate limited. Waiting {backoff_time} seconds before retry...")
                     time.sleep(backoff_time)
                 
                 logger.info(f"\nAttempting {source} search (attempt {attempt + 1}/{max_retries})...")
                 
-                # Try different search prompts to improve results
-                search_prompts = [
-                    f"""Search for detailed articles about: {topic}
-                    Return only high-quality, relevant sources.
-                    Format the results as a JSON object with an 'articles' array containing:
-                    - title: The article title
-                    - url: The article URL
-                    - description: A brief description or summary
-                    """,
-                    f"""Find comprehensive articles and research papers about: {topic}
-                    Focus on authoritative sources and recent publications.
-                    Return results in JSON format with 'articles' array.
-                    """,
-                    f"""Locate detailed analysis and reports discussing: {topic}
-                    Prioritize academic, industry, and news sources.
-                    Return structured JSON with article details.
-                    """
-                ]
+                # Enhanced search prompt with explicit JSON structure
+                search_prompt = f"""Search for detailed articles about: {topic}
+                Return exactly 15 relevant articles in the following JSON format:
+                {{
+                    "articles": [
+                        {{
+                            "title": "Article Title",
+                            "url": "https://example.com/article",
+                            "description": "Brief description of the article"
+                        }}
+                    ]
+                }}
+                Ensure all JSON fields are properly quoted and formatted."""
                 
-                # Try each prompt until we get results
-                for prompt in search_prompts:
-                    try:
-                        response = searcher.run(prompt, stream=False)
-                        results = self._parse_search_response(response)
-                        if results and results.articles:
-                            logger.info(f"Found {len(results.articles)} articles from {source} search")
-                            return results
-                    except Exception as e:
-                        if any(err in str(e).lower() for err in ["rate", "limit", "quota", "exhausted"]):
-                            rate_limited_sources.add(source)
-                            raise
-                        logger.warning(f"Search prompt failed: {str(e)}")
-                        continue
+                # Add timeout to prevent hanging
+                try:
+                    response = searcher.run(search_prompt, stream=False, timeout=30)
+                except Exception as search_error:
+                    logger.warning(f"Search error with {source}: {str(search_error)}")
+                    if not use_backup:
+                        logger.info("Switching to backup search method...")
+                        return self._search_with_retry(topic, use_backup=True, max_retries=max_retries)
+                    raise
+                
+                # Handle different response types
+                if isinstance(response, RunResponse):
+                    content = response.content
+                elif isinstance(response, str):
+                    content = response
+                else:
+                    logger.warning(f"Unexpected response type from {source}: {type(response)}")
+                    if not use_backup:
+                        return self._search_with_retry(topic, use_backup=True, max_retries=max_retries)
+                    continue
+                
+                # Try to parse the response
+                results = self._parse_search_response(content)
+                if results and results.articles:
+                    logger.info(f"Found {len(results.articles)} articles from {source} search")
+                    return results
                 
                 logger.warning(f"{source.title()} search returned no valid results")
+                if not use_backup:
+                    return self._search_with_retry(topic, use_backup=True, max_retries=max_retries)
                 
             except Exception as e:
                 error_msg = str(e).lower()
-                if any(err in error_msg for err in ["rate", "limit", "quota", "exhausted"]):
+                if any(err in error_msg for err in ["rate", "limit", "quota", "exhausted", "none", "failed"]):
                     rate_limited_sources.add(source)
                     logger.error(f"{source} search rate limited: {str(e)}")
-                    # Try alternative source immediately
                     if not use_backup:
                         backup_results = self._search_with_retry(topic, use_backup=True, max_retries=max_retries)
                         if backup_results:
@@ -359,7 +392,7 @@ class BlogPostGenerator(Workflow):
                 if attempt < max_retries - 1:
                     backoff_time = 2 ** attempt
                     if source in rate_limited_sources:
-                        backoff_time = min(3600, 60 * (2 ** attempt))  # Longer backoff for rate limits
+                        backoff_time = min(3600, 60 * (2 ** attempt))
                     logger.info(f"Waiting {backoff_time} seconds before retry...")
                     time.sleep(backoff_time)
         
@@ -766,7 +799,7 @@ class BlogPostGenerator(Workflow):
         
         yield RunResponse(
             event=RunEvent.run_completed,
-            message=f"Report generated successfully. HTML saved as: {html_file}",
+            messages=f"Report generated successfully. HTML saved as: {html_file}",
             content=content
         )
         
@@ -977,12 +1010,6 @@ class WebsiteCrawler:
         """Crawl multiple websites in parallel."""
         all_results = []
         
-        if isinstance(websites, str):
-            # Remove the brackets and split by comma
-            websites = websites.strip('[]').replace('"', '').replace(" ","").split(',')
-            # Clean up any whitespace
-            websites = [url.strip("'") for url in websites]
-
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             future_to_url = {
                 executor.submit(self.crawl_website, url, keywords): url 
@@ -1003,7 +1030,7 @@ class WebsiteCrawler:
 # Create the workflow
 searcher = Agent(
     model=get_groq_model('searcher'),
-    tools=[DuckDuckGo(fixed_max_results=DUCK_DUCK_GO_FIXED_MAX_RESULTS)],
+    tools=[DuckDuckGoTools(fixed_max_results=DUCK_DUCK_GO_FIXED_MAX_RESULTS)],
 
     instructions=[
         "Given a topic, search for 20 articles and return the 15 most relevant articles.",
@@ -1013,13 +1040,13 @@ searcher = Agent(
         "- description: A brief description or summary",
         "Return the results in a structured format with these exact field names."
     ],
-    response_model=SearchResults,
+    # response_model=SearchResults,
     structured_outputs=True
 )
 
 backup_searcher = Agent(
     model=get_groq_model('searcher'),
-    tools=[GoogleSearch()],
+    tools=[GoogleSearchTools()],
 
     instructions=[
         "Given a topic, search for 20 articles and return the 15 most relevant articles.",
@@ -1029,14 +1056,13 @@ backup_searcher = Agent(
         "- description: A brief description or summary",
         "Return the results in a structured format with these exact field names."
     ],
-    response_model=SearchResults,
+    # response_model=SearchResults,
     structured_outputs=True
 )
 
 writer = Agent(
     model=get_groq_model('writer'),
     instructions=[
-
         "You are a professional research analyst tasked with creating a comprehensive report on the given topic.",
         "The sources provided include both general web search results and specialized intelligence/security websites.",
         "Carefully analyze and cross-reference information from all sources to create a detailed report.",
@@ -1095,8 +1121,9 @@ generate_blog_post = BlogPostGenerator(
     searcher=searcher,
     backup_searcher=backup_searcher,
     writer=writer,
-    file_handler=None,  # Initialize with None
-    storage=SqlWorkflowStorage(
+    file_handler=None,
+    initial_websites=INITIAL_WEBSITES.copy(),  # Added this line
+    storage=SqliteWorkflowStorage(
         table_name="generate_blog_post_workflows",
         db_file="tmp/workflows.db",
     ),

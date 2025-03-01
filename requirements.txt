@@ -1,11 +1,13 @@
 agno
+googlesearch-python
+agno
 beautifulsoup4
 requests
 pydantic
 duckduckgo-search
+google-search
 tenacity
 streamlit
-sqlalchemy
 groq
-googlesearch-python
+sqlalchemy
 pycountry
