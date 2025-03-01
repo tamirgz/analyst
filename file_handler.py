@@ -7,6 +7,7 @@ from datetime import datetime
 from save_report import save_markdown_report
 from agno.utils.log import logger
 
+
 class FileHandler:
     """Handler for downloading and saving files discovered during web crawling."""
     

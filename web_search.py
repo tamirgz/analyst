@@ -992,122 +992,120 @@ class WebsiteCrawler:
         
         return all_results
 
-def run():
+# Create the workflow
+searcher = Agent(
+    model=Groq(
+        id=SEARCHER_MODEL_CONFIG["id"],
+        api_key=NVIDIA_API_KEY,
+        temperature=SEARCHER_MODEL_CONFIG["temperature"],
+        top_p=SEARCHER_MODEL_CONFIG["top_p"]
+    ),
+    tools=[DuckDuckGoTools(fixed_max_results=DUCK_DUCK_GO_FIXED_MAX_RESULTS)],
+    instructions=[
+        "Given a topic, search for 20 articles and return the 15 most relevant articles.",
+        "For each article, provide:",
+        "- title: The article title",
+        "- url: The article URL",
+        "- description: A brief description or summary",
+        "Return the results in a structured format with these exact field names."
+    ],
+    # response_model=SearchResults,
+    structured_outputs=True
+)
 
-    # Create the workflow
-    searcher = Agent(
-        model=Groq(
-            id=SEARCHER_MODEL_CONFIG["id"],
-            api_key=os.environ["GROQ_API_KEY"],
-            temperature=SEARCHER_MODEL_CONFIG["temperature"],
-            top_p=SEARCHER_MODEL_CONFIG["top_p"]
-        ),
-        tools=[DuckDuckGoTools(fixed_max_results=DUCK_DUCK_GO_FIXED_MAX_RESULTS)],
-        instructions=[
-            "Given a topic, search for 20 articles and return the 15 most relevant articles.",
-            "For each article, provide:",
-            "- title: The article title",
-            "- url: The article URL",
-            "- description: A brief description or summary",
-            "Return the results in a structured format with these exact field names."
-        ],
-        # response_model=SearchResults,
-        structured_outputs=True
-    )
+backup_searcher = Agent(
+    model=Groq(
+        id=SEARCHER_MODEL_CONFIG["id"],
+        api_key=NVIDIA_API_KEY,
+        temperature=SEARCHER_MODEL_CONFIG["temperature"],
+        top_p=SEARCHER_MODEL_CONFIG["top_p"]
+    ),
+    tools=[GoogleSearchTools()],
+    instructions=[
+        "Given a topic, search for 20 articles and return the 15 most relevant articles.",
+        "For each article, provide:",
+        "- title: The article title",
+        "- url: The article URL",
+        "- description: A brief description or summary",
+        "Return the results in a structured format with these exact field names."
+    ],
+    # response_model=SearchResults,
+    structured_outputs=True
+)
 
-    backup_searcher = Agent(
-        model=Groq(
-            id=SEARCHER_MODEL_CONFIG["id"],
-            api_key=os.environ["GROQ_API_KEY"],
-            temperature=SEARCHER_MODEL_CONFIG["temperature"],
-            top_p=SEARCHER_MODEL_CONFIG["top_p"]
-        ),
-        tools=[GoogleSearchTools()],
-        instructions=[
-            "Given a topic, search for 20 articles and return the 15 most relevant articles.",
-            "For each article, provide:",
-            "- title: The article title",
-            "- url: The article URL",
-            "- description: A brief description or summary",
-            "Return the results in a structured format with these exact field names."
-        ],
-        # response_model=SearchResults,
-        structured_outputs=True
-    )
+writer = Agent(
+    model=Groq(
+        id=WRITER_MODEL_CONFIG["id"],
+        api_key=NVIDIA_API_KEY,
+        temperature=WRITER_MODEL_CONFIG["temperature"],
+        top_p=WRITER_MODEL_CONFIG["top_p"],
+    ),
+    instructions=[
+        "You are a professional research analyst tasked with creating a comprehensive report on the given topic.",
+        "The sources provided include both general web search results and specialized intelligence/security websites.",
+        "Carefully analyze and cross-reference information from all sources to create a detailed report.",
+        "",
+        "Report Structure:",
+        "1. Executive Summary (2-3 paragraphs)",
+        "   - Provide a clear, concise overview of the main findings",
+        "   - Address the research question directly",
+        "   - Highlight key discoveries and implications",
+        "",
+        "2. Detailed Analysis (Multiple sections)",
+        "   - Break down the topic into relevant themes or aspects",
+        "   - For each theme:",
+        "     * Present detailed findings from multiple sources",
+        "     * Cross-reference information between general and specialized sources",
+        "     * Analyze trends, patterns, and developments",
+        "     * Discuss implications and potential impacts",
+        "",
+        "3. Source Analysis and Credibility",
+        "   For each major source:",
+        "   - Evaluate source credibility and expertise",
+        "   - Note if from specialized intelligence/security website",
+        "   - Assess potential biases or limitations",
+        "   - Key findings and unique contributions",
+        "",
+        "4. Key Takeaways and Strategic Implications",
+        "   - Synthesize findings from all sources",
+        "   - Compare/contrast general media vs specialized analysis",
+        "   - Discuss broader geopolitical implications",
+        "   - Address potential future developments",
+        "",
+        "5. References",
+        "   - Group sources by type (specialized websites vs general media)",
+        "   - List all sources with full citations",
+        "   - Include URLs as clickable markdown links [Title](URL)",
+        "   - Ensure every major claim has at least one linked source",
+        "",
+        "Important Guidelines:",
+        "- Prioritize information from specialized intelligence/security sources",
+        "- Cross-validate claims between multiple sources when possible",
+        "- Maintain a professional, analytical tone",
+        "- Support all claims with evidence",
+        "- Include specific examples and data points",
+        "- Use direct quotes for significant statements",
+        "- Address potential biases in reporting",
+        "- Ensure the report directly answers the research question",
+        "",
+        "Format the report with clear markdown headings (# ## ###), subheadings, and paragraphs.",
+        "Each major section should contain multiple paragraphs with detailed analysis."
+    ],
+    structured_outputs=True
+)
 
-    writer = Agent(
-        model=Groq(
-            id=WRITER_MODEL_CONFIG["id"],
-            api_key=os.environ["GROQ_API_KEY"],
-            temperature=WRITER_MODEL_CONFIG["temperature"],
-            top_p=WRITER_MODEL_CONFIG["top_p"]
-        ),
-        instructions=[
-            "You are a professional research analyst tasked with creating a comprehensive report on the given topic.",
-            "The sources provided include both general web search results and specialized intelligence/security websites.",
-            "Carefully analyze and cross-reference information from all sources to create a detailed report.",
-            "",
-            "Report Structure:",
-            "1. Executive Summary (2-3 paragraphs)",
-            "   - Provide a clear, concise overview of the main findings",
-            "   - Address the research question directly",
-            "   - Highlight key discoveries and implications",
-            "",
-            "2. Detailed Analysis (Multiple sections)",
-            "   - Break down the topic into relevant themes or aspects",
-            "   - For each theme:",
-            "     * Present detailed findings from multiple sources",
-            "     * Cross-reference information between general and specialized sources",
-            "     * Analyze trends, patterns, and developments",
-            "     * Discuss implications and potential impacts",
-            "",
-            "3. Source Analysis and Credibility",
-            "   For each major source:",
-            "   - Evaluate source credibility and expertise",
-            "   - Note if from specialized intelligence/security website",
-            "   - Assess potential biases or limitations",
-            "   - Key findings and unique contributions",
-            "",
-            "4. Key Takeaways and Strategic Implications",
-            "   - Synthesize findings from all sources",
-            "   - Compare/contrast general media vs specialized analysis",
-            "   - Discuss broader geopolitical implications",
-            "   - Address potential future developments",
-            "",
-            "5. References",
-            "   - Group sources by type (specialized websites vs general media)",
-            "   - List all sources with full citations",
-            "   - Include URLs as clickable markdown links [Title](URL)",
-            "   - Ensure every major claim has at least one linked source",
-            "",
-            "Important Guidelines:",
-            "- Prioritize information from specialized intelligence/security sources",
-            "- Cross-validate claims between multiple sources when possible",
-            "- Maintain a professional, analytical tone",
-            "- Support all claims with evidence",
-            "- Include specific examples and data points",
-            "- Use direct quotes for significant statements",
-            "- Address potential biases in reporting",
-            "- Ensure the report directly answers the research question",
-            "",
-            "Format the report with clear markdown headings (# ## ###), subheadings, and paragraphs.",
-            "Each major section should contain multiple paragraphs with detailed analysis."
-        ],
-        structured_outputs=True
-    )
-
-    generate_blog_post = BlogPostGenerator(
-        session_id=f"generate-blog-post-on-{topic}",
-        searcher=searcher,
-        backup_searcher=backup_searcher,
-        writer=writer,
-        file_handler=None,  # Initialize with None
-		initial_websites=INITIAL_WEBSITES.copy(),  # Added this line
-        storage=SqliteWorkflowStorage(
-            table_name="generate_blog_post_workflows",
-            db_file="tmp/workflows.db",
-        ),
-    )
+generate_blog_post = BlogPostGenerator(
+    session_id=f"generate-blog-post-on-{topic}",
+    searcher=searcher,
+    backup_searcher=backup_searcher,
+    writer=writer,
+    file_handler=None,
+    initial_websites=INITIAL_WEBSITES.copy(),  # Added this line
+    storage=SqliteWorkflowStorage(
+        table_name="generate_blog_post_workflows",
+        db_file="tmp/workflows.db",
+    ),
+)
 
     # Run workflow
     blog_post: Iterator[RunResponse] = generate_blog_post.run(topic=topic, use_cache=False)
