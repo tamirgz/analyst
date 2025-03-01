@@ -27,7 +27,7 @@ from duckduckgo_search.exceptions import RatelimitException
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 from requests.exceptions import HTTPError
 
-from config import DEFAULT_TOPIC, INITIAL_WEBSITES, SEARCHER_MODEL_CONFIG, WRITER_MODEL_CONFIG
+from config import DEFAULT_TOPIC, INITIAL_WEBSITES, SEARCHER_MODEL_CONFIG, WRITER_MODEL_CONFIG, NVIDIA_API_KEY
 
 DUCK_DUCK_GO_FIXED_MAX_RESULTS = 10
 
@@ -90,7 +90,7 @@ class BlogPostGenerator(Workflow):
         self.searcher = Agent(
             model=Groq(
                 id=SEARCHER_MODEL_CONFIG["id"],
-                api_key=os.environ["GROQ_API_KEY"],
+                api_key=NVIDIA_API_KEY,
                 temperature=SEARCHER_MODEL_CONFIG["temperature"],
                 top_p=SEARCHER_MODEL_CONFIG["top_p"]
             ),
@@ -103,7 +103,7 @@ class BlogPostGenerator(Workflow):
         self.backup_searcher = Agent(
             model=Groq(
                 id=SEARCHER_MODEL_CONFIG["id"],
-                api_key=os.environ["GROQ_API_KEY"],
+                api_key=NVIDIA_API_KEY,
                 temperature=SEARCHER_MODEL_CONFIG["temperature"],
                 top_p=SEARCHER_MODEL_CONFIG["top_p"]
             ),
@@ -168,7 +168,7 @@ class BlogPostGenerator(Workflow):
         self.writer = Agent(
             model=Groq(
                 id=WRITER_MODEL_CONFIG["id"],
-                api_key=os.environ["GROQ_API_KEY"],
+                api_key=NVIDIA_API_KEY,
                 temperature=WRITER_MODEL_CONFIG["temperature"],
                 top_p=WRITER_MODEL_CONFIG["top_p"]
             ),
@@ -1107,11 +1107,8 @@ generate_blog_post = BlogPostGenerator(
     ),
 )
 
-    # Run workflow
-    blog_post: Iterator[RunResponse] = generate_blog_post.run(topic=topic, use_cache=False)
+# Run workflow
+blog_post: Iterator[RunResponse] = generate_blog_post.run(topic=topic, use_cache=False)
 
-    # Print the response
-    pprint_run_response(blog_post, markdown=True)
-
-def main():
-    run()
+# Print the response
+pprint_run_response(blog_post, markdown=True)
