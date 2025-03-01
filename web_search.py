@@ -27,7 +27,7 @@ from duckduckgo_search.exceptions import RatelimitException
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
 from requests.exceptions import HTTPError
 
-from config import DEFAULT_TOPIC, INITIAL_WEBSITES, SEARCHER_MODEL_CONFIG, WRITER_MODEL_CONFIG, NVIDIA_API_KEY
+from config import DEFAULT_TOPIC, INITIAL_WEBSITES, GROQ_API_KEY, SEARCHER_MODEL_CONFIG, WRITER_MODEL_CONFIG, get_groq_model
 
 DUCK_DUCK_GO_FIXED_MAX_RESULTS = 10
 
@@ -88,12 +88,7 @@ class BlogPostGenerator(Workflow):
         
         # Primary searcher using DuckDuckGo
         self.searcher = Agent(
-            model=Groq(
-                id=SEARCHER_MODEL_CONFIG["id"],
-                api_key=NVIDIA_API_KEY,
-                temperature=SEARCHER_MODEL_CONFIG["temperature"],
-                top_p=SEARCHER_MODEL_CONFIG["top_p"]
-            ),
+            model=get_groq_model('searcher'),
             tools=[DuckDuckGoTools(fixed_max_results=DUCK_DUCK_GO_FIXED_MAX_RESULTS)],
             instructions=search_instructions,
             # response_model=SearchResults
@@ -101,12 +96,7 @@ class BlogPostGenerator(Workflow):
         
         # Backup searcher using Google Search
         self.backup_searcher = Agent(
-            model=Groq(
-                id=SEARCHER_MODEL_CONFIG["id"],
-                api_key=NVIDIA_API_KEY,
-                temperature=SEARCHER_MODEL_CONFIG["temperature"],
-                top_p=SEARCHER_MODEL_CONFIG["top_p"]
-            ),
+            model=get_groq_model('searcher'),
             tools=[GoogleSearchTools()],
             instructions=search_instructions,
             # response_model=SearchResults
@@ -166,12 +156,7 @@ class BlogPostGenerator(Workflow):
         ]
         
         self.writer = Agent(
-            model=Groq(
-                id=WRITER_MODEL_CONFIG["id"],
-                api_key=NVIDIA_API_KEY,
-                temperature=WRITER_MODEL_CONFIG["temperature"],
-                top_p=WRITER_MODEL_CONFIG["top_p"]
-            ),
+            model=get_groq_model('writer'),
             instructions=writer_instructions,
             structured_outputs=True
         )
@@ -255,14 +240,64 @@ class BlogPostGenerator(Workflow):
                 except json.JSONDecodeError as e:
                     logger.warning(f"Failed to parse JSON response: {str(e)}\nContent: {content[:500]}...")
                     
-                # Rest of the existing fallback code...
-                # [Previous regex extraction code remains unchanged]
-
+                # Fallback to regex extraction if JSON parsing fails
+                urls = re.findall(r'https?://[^\s<>"]+|www\.[^\s<>"]+', content)
+                titles = re.findall(r'"title":\s*"([^"]+)"', content)
+                descriptions = re.findall(r'"description":\s*"([^"]+)"', content)
+                
+                if not urls:  # Try alternative patterns
+                    urls = re.findall(r'(?<=\()http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+(?=\))', content)
+                
+                if urls:
+                    articles = []
+                    for i, url in enumerate(urls):
+                        title = titles[i] if i < len(titles) else f"Article {i+1}"
+                        description = descriptions[i] if i < len(descriptions) else ""
+                        # Clean up extracted data
+                        title = title.strip().replace('\\"', '"')
+                        url = url.strip().replace('\\"', '"')
+                        description = description.strip().replace('\\"', '"')
+                        
+                        if url:  # Only add if URL exists
+                            articles.append(NewsArticle(
+                                title=title,
+                                url=url,
+                                description=description
+                            ))
+                    
+                    if articles:
+                        logger.info(f"Successfully extracted {len(articles)} articles using regex")
+                        return SearchResults(articles=articles)
+                    
+                logger.warning("No valid articles found in response")
+                return None
+                
             elif isinstance(response, dict):
-                # Add debug logging for dict response
-                logger.debug(f"Processing dictionary response: {str(response)[:500]}...")
-                # [Rest of dict handling remains unchanged]
-
+                # Handle dictionary response
+                if 'articles' in response:
+                    articles = []
+                    for article in response['articles']:
+                        if isinstance(article, dict):
+                            # Ensure all fields are strings
+                            article = {
+                                'title': str(article.get('title', '')).strip(),
+                                'url': str(article.get('url', '')).strip(),
+                                'description': str(article.get('description', '')).strip()
+                            }
+                            if article['title'] and article['url']:
+                                articles.append(NewsArticle(**article))
+                        elif isinstance(article, NewsArticle):
+                            articles.append(article)
+                    
+                    if articles:
+                        logger.info(f"Successfully processed {len(articles)} articles from dict")
+                        return SearchResults(articles=articles)
+                return None
+                
+            elif isinstance(response, SearchResults):
+                # Already in correct format
+                return response
+                
             elif isinstance(response, RunResponse):
                 # Add debug logging for RunResponse
                 logger.debug(f"Processing RunResponse: {str(response.content)[:500] if response.content else 'No content'}")
@@ -994,13 +1029,9 @@ class WebsiteCrawler:
 
 # Create the workflow
 searcher = Agent(
-    model=Groq(
-        id=SEARCHER_MODEL_CONFIG["id"],
-        api_key=NVIDIA_API_KEY,
-        temperature=SEARCHER_MODEL_CONFIG["temperature"],
-        top_p=SEARCHER_MODEL_CONFIG["top_p"]
-    ),
+    model=get_groq_model('searcher'),
     tools=[DuckDuckGoTools(fixed_max_results=DUCK_DUCK_GO_FIXED_MAX_RESULTS)],
+
     instructions=[
         "Given a topic, search for 20 articles and return the 15 most relevant articles.",
         "For each article, provide:",
@@ -1014,13 +1045,9 @@ searcher = Agent(
 )
 
 backup_searcher = Agent(
-    model=Groq(
-        id=SEARCHER_MODEL_CONFIG["id"],
-        api_key=NVIDIA_API_KEY,
-        temperature=SEARCHER_MODEL_CONFIG["temperature"],
-        top_p=SEARCHER_MODEL_CONFIG["top_p"]
-    ),
+    model=get_groq_model('searcher'),
     tools=[GoogleSearchTools()],
+
     instructions=[
         "Given a topic, search for 20 articles and return the 15 most relevant articles.",
         "For each article, provide:",
@@ -1034,12 +1061,7 @@ backup_searcher = Agent(
 )
 
 writer = Agent(
-    model=Groq(
-        id=WRITER_MODEL_CONFIG["id"],
-        api_key=NVIDIA_API_KEY,
-        temperature=WRITER_MODEL_CONFIG["temperature"],
-        top_p=WRITER_MODEL_CONFIG["top_p"],
-    ),
+    model=get_groq_model('writer'),
     instructions=[
         "You are a professional research analyst tasked with creating a comprehensive report on the given topic.",
         "The sources provided include both general web search results and specialized intelligence/security websites.",
